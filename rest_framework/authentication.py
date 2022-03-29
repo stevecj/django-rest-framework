@@ -3,6 +3,7 @@ Provides various authentication policies.
 """
 import base64
 import binascii
+import warnings
 
 from django.contrib.auth import authenticate, get_user_model
 from django.middleware.csrf import CsrfViewMiddleware
@@ -22,6 +23,22 @@ def get_authorization_header(request):
         # Work around django test client oddness
         auth = auth.encode(HTTP_HEADER_ENCODING)
     return auth
+
+
+def enforce_csrf(request):
+    """
+    Enforce CSRF validation for session based authentication.
+    """
+    def dummy_get_response(request):  # pragma: no cover
+        return None
+
+    check = CSRFCheck(dummy_get_response)
+    # populates request.META['CSRF_COOKIE'], which is used in process_view()
+    check.process_request(request)
+    reason = check.process_view(request, None, (), {})
+    if reason:
+        # CSRF failed, bail with explicit error message
+        raise exceptions.PermissionDenied('CSRF Failed: %s' % reason)
 
 
 class CSRFCheck(CsrfViewMiddleware):
@@ -127,25 +144,18 @@ class SessionAuthentication(BaseAuthentication):
         if not user or not user.is_active:
             return None
 
-        self.enforce_csrf(request)
+        enforce_csrf(request)
 
         # CSRF passed with authenticated user
         return (user, None)
 
     def enforce_csrf(self, request):
-        """
-        Enforce CSRF validation for session based authentication.
-        """
-        def dummy_get_response(request):  # pragma: no cover
-            return None
-
-        check = CSRFCheck(dummy_get_response)
-        # populates request.META['CSRF_COOKIE'], which is used in process_view()
-        check.process_request(request)
-        reason = check.process_view(request, None, (), {})
-        if reason:
-            # CSRF failed, bail with explicit error message
-            raise exceptions.PermissionDenied('CSRF Failed: %s' % reason)
+        warnings.warn(
+            "Method `enforce_csrf` on session authentication has been "
+            "deprecated and is no longer called. Call the `enforce_csrf`"
+            "function instead of the method."
+        )
+        enforce_csrf(request)
 
 
 class TokenAuthentication(BaseAuthentication):
